@@ -81,7 +81,7 @@ android_app {
         ":bluetooth-proto-enums-java-gen",
     ],
     aaptflags: [ "--custom-package", "com.android.bluetooth" ],
-    certificate: "bluetooth",
+    certificate: "platform",
 
     jni_libs: ["libbluetooth_jni"],
     libs: [
