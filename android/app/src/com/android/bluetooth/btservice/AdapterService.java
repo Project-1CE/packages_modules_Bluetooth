@@ -3868,7 +3868,7 @@ public class AdapterService extends Service {
 
         @Override
         public boolean isBroadcastActive(AttributionSource attributionSource) {
-            return true;
+            return false;
         }
 
         @Override
