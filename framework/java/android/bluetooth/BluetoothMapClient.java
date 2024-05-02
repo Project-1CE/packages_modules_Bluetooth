@@ -13,6 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+ /*
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
+*/
 
 package android.bluetooth;
 
@@ -733,6 +739,46 @@ public final class BluetoothMapClient implements BluetoothProfile, AutoCloseable
             try {
                 final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
                 service.setMessageStatus(device, handle, status, mAttributionSource, recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
+            } catch (RemoteException | TimeoutException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+        return defaultValue;
+    }
+
+    /**
+     * Send a Image message.
+     *
+     * Send an Image message to either the contacts primary number or the telephone number specified.
+     *
+     * @param device Bluetooth device
+     * @param contacts Uri[] of the contacts
+     * @param ImagePath Path of Image
+     * @param sentIntent intent issued when message is sent
+     * @param deliveredIntent intent issued when message is delivered
+     * @return true if the message is enqueued, false on error
+     * @hide
+     */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.SEND_SMS,
+    })
+    public boolean sendImage(@NonNull BluetoothDevice device, @NonNull Uri[] contacts,
+            @NonNull String ImagePath, @Nullable PendingIntent sentIntent,
+            @Nullable PendingIntent deliveredIntent) {
+        if (DBG) Log.d(TAG, "send Image(" + device + ", " + Arrays.toString(contacts)+ ", " + ImagePath);
+        final IBluetoothMapClient service = getService();
+        final boolean defaultValue = false;
+        if (service == null) {
+            Log.w(TAG, "Proxy not attached to service");
+            if (DBG) Log.d(TAG, Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled() && isValidDevice(device)) {
+            try {
+                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
+                service.sendImage(device, contacts, ImagePath, sentIntent, deliveredIntent,
+                        mAttributionSource, recv);
                 return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
             } catch (RemoteException | TimeoutException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));

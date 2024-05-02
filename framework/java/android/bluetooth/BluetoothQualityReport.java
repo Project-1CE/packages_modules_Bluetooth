@@ -30,6 +30,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
+import android.annotation.SuppressLint;
 
 /**
  * This class provides the System APIs to access the data of BQR event reported from firmware side.
@@ -95,6 +96,31 @@ public final class BluetoothQualityReport implements Parcelable {
      */
     @SystemApi
     public static final int QUALITY_REPORT_ID_CONN_FAIL = 0x08;
+    /**
+     * Quality report ID: Vendor Specific.
+     *
+     * @hide
+     */
+    @SystemApi
+    @SuppressLint("UnflaggedApi")
+    public static final int QUALITY_REPORT_ID_VENDOR_SPECIFIC = 0x10;
+    /**
+     * Quality report ID: Vendor Specific Dicovery Monitor.
+     *
+     * @hide
+     */
+    @SystemApi
+    @SuppressLint("UnflaggedApi")
+    public static final int QUALITY_REPORT_ID_VS_DISC_MONITOR  = 0x01;
+    /**
+     * Quality report ID: Vendor Specific Misc Monitor.
+     *
+     * @hide
+     */
+    @SystemApi
+    @SuppressLint("UnflaggedApi")
+    public static final int QUALITY_REPORT_ID_VS_MISC_MONITOR   = 0x02;
+
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
@@ -106,6 +132,9 @@ public final class BluetoothQualityReport implements Parcelable {
                 QUALITY_REPORT_ID_A2DP_CHOPPY,
                 QUALITY_REPORT_ID_SCO_CHOPPY,
                 QUALITY_REPORT_ID_CONN_FAIL,
+                QUALITY_REPORT_ID_VENDOR_SPECIFIC,
+                QUALITY_REPORT_ID_VS_DISC_MONITOR,
+                QUALITY_REPORT_ID_VS_MISC_MONITOR
             })
     public @interface QualityReportId {}
 
@@ -115,12 +144,16 @@ public final class BluetoothQualityReport implements Parcelable {
     private int mManufacturerId;
     private String mName;
     private BluetoothClass mBluetoothClass;
+    private boolean mVendorBqr5;
 
     private BqrCommon mBqrCommon;
+    private BqrVsQualityMonitor mBqrVsQualityMonitor;
     private BqrVsLsto mBqrVsLsto;
     private BqrVsA2dpChoppy mBqrVsA2dpChoppy;
     private BqrVsScoChoppy mBqrVsScoChoppy;
     private BqrConnectFail mBqrConnectFail;
+    private BqrVsDiscoveryMonitoring mBqrVsDiscMonitoring;
+    private BqrVsMiscMonitoring mBqrVsMiscMonitoring;
 
     enum PacketType {
         INVALID,
@@ -269,7 +302,59 @@ public final class BluetoothQualityReport implements Parcelable {
         }
     }
 
+    private BluetoothQualityReport(String remoteAddr, int lmpVer, int lmpSubVer,
+            int manufacturerId, String remoteName, BluetoothClass bluetoothClass, byte[] rawData,
+            boolean vendorBqr5) {
+        mVendorBqr5 = vendorBqr5;
+        if (!BluetoothAdapter.checkBluetoothAddress(remoteAddr)) {
+            Log.d(TAG, "remote addr is invalid");
+            mAddr = "00:00:00:00:00:00";
+        } else {
+            mAddr = remoteAddr;
+        }
+
+        mLmpVer = lmpVer;
+        mLmpSubVer = lmpSubVer;
+        mManufacturerId = manufacturerId;
+        if (remoteName == null) {
+            Log.d(TAG, "remote name is null");
+            mName = "";
+        } else {
+            mName = remoteName;
+        }
+        mBluetoothClass = bluetoothClass;
+
+        mBqrCommon = new BqrCommon(rawData, 0, vendorBqr5);
+        int id = mBqrCommon.getQualityReportId();
+
+        int vsPartOffset = BqrCommon.BQR_COMMON_LEN;
+        if (mVendorBqr5 == true && id == QUALITY_REPORT_ID_MONITOR) {
+            mBqrVsQualityMonitor = new BqrVsQualityMonitor(rawData, vsPartOffset);
+        } else if (mVendorBqr5 == false && id == QUALITY_REPORT_ID_MONITOR){
+            return;
+        } else if (id == QUALITY_REPORT_ID_APPROACH_LSTO) {
+            mBqrVsLsto = new BqrVsLsto(rawData, vsPartOffset);
+        } else if (id == QUALITY_REPORT_ID_A2DP_CHOPPY) {
+            mBqrVsA2dpChoppy = new BqrVsA2dpChoppy(rawData, vsPartOffset);
+        } else if (id == QUALITY_REPORT_ID_SCO_CHOPPY) {
+            mBqrVsScoChoppy = new BqrVsScoChoppy(rawData, vsPartOffset);
+        } else if (id == QUALITY_REPORT_ID_CONN_FAIL) {
+            mBqrConnectFail = new BqrConnectFail(rawData, vsPartOffset);
+        } else if(mVendorBqr5 == true &&
+                  id == QUALITY_REPORT_ID_VENDOR_SPECIFIC) {
+            int vsId = mBqrCommon.getVendorQualityReportId();
+            if (vsId == QUALITY_REPORT_ID_VS_DISC_MONITOR) {
+                mBqrVsDiscMonitoring = new BqrVsDiscoveryMonitoring(rawData, 2);
+            } else if (vsId == QUALITY_REPORT_ID_VS_MISC_MONITOR) {
+                mBqrVsMiscMonitoring = new BqrVsMiscMonitoring(rawData, 2);
+            }
+        } else {
+            throw new IllegalArgumentException(TAG + ": unkown quality report id:" + id);
+        }
+    }
+
     private BluetoothQualityReport(Parcel in) {
+        mVendorBqr5 = in.readBoolean();
         mAddr = in.readString();
         mLmpVer = in.readInt();
         mLmpSubVer = in.readInt();
@@ -279,7 +364,12 @@ public final class BluetoothQualityReport implements Parcelable {
 
         mBqrCommon = new BqrCommon(in);
         int id = mBqrCommon.getQualityReportId();
-        if (id == QUALITY_REPORT_ID_APPROACH_LSTO) {
+
+        if (mVendorBqr5 == true && id == QUALITY_REPORT_ID_MONITOR) {
+            mBqrVsQualityMonitor = new BqrVsQualityMonitor(in);
+        } else if (mVendorBqr5 == false && id == QUALITY_REPORT_ID_MONITOR) {
+            return;
+        } else if (id == QUALITY_REPORT_ID_APPROACH_LSTO) {
             mBqrVsLsto = new BqrVsLsto(in);
         } else if (id == QUALITY_REPORT_ID_A2DP_CHOPPY) {
             mBqrVsA2dpChoppy = new BqrVsA2dpChoppy(in);
@@ -287,6 +377,14 @@ public final class BluetoothQualityReport implements Parcelable {
             mBqrVsScoChoppy = new BqrVsScoChoppy(in);
         } else if (id == QUALITY_REPORT_ID_CONN_FAIL) {
             mBqrConnectFail = new BqrConnectFail(in);
+        } else if(mVendorBqr5 == true &&
+                  id == QUALITY_REPORT_ID_VENDOR_SPECIFIC) {
+            int vsId = mBqrCommon.getVendorQualityReportId();
+            if (vsId == QUALITY_REPORT_ID_VS_DISC_MONITOR) {
+                mBqrVsDiscMonitoring = new BqrVsDiscoveryMonitoring(in);
+            } else if (vsId == QUALITY_REPORT_ID_VS_MISC_MONITOR) {
+                mBqrVsMiscMonitoring = new BqrVsMiscMonitoring(in);
+            }
         }
     }
 
@@ -299,6 +397,17 @@ public final class BluetoothQualityReport implements Parcelable {
     @QualityReportId
     public int getQualityReportId() {
         return mBqrCommon.getQualityReportId();
+    }
+
+    /**
+     * Get the quality report id.
+     *
+     * @hide
+     */
+    @SystemApi
+    @SuppressLint("UnflaggedApi")
+    public int getVendorQualityReportId() {
+        return mBqrCommon.getVendorQualityReportId();
     }
 
     /**
@@ -322,6 +431,19 @@ public final class BluetoothQualityReport implements Parcelable {
     public @Nullable String getRemoteAddress() {
         return mAddr;
     }
+
+    /**
+     * Is Vendor BQR5 Enabled.
+     * @hide
+     * @return true if Vendor BQR5 Enabled otherwise false.
+     */
+    @SystemApi
+    @SuppressLint("UnflaggedApi")
+    public boolean isVendorBqr5() {
+        return mVendorBqr5;
+    }
+
+    /**
 
     /**
      * Get LMP version of remote device in this report.
@@ -413,7 +535,11 @@ public final class BluetoothQualityReport implements Parcelable {
         }
         switch (mBqrCommon.getQualityReportId()) {
             case QUALITY_REPORT_ID_MONITOR:
-                return mBqrCommon;
+                if (mVendorBqr5 == true) {
+                    return mBqrVsQualityMonitor;
+                } else {
+                    return mBqrCommon;
+                }
             case QUALITY_REPORT_ID_APPROACH_LSTO:
                 return mBqrVsLsto;
             case QUALITY_REPORT_ID_A2DP_CHOPPY:
@@ -422,6 +548,15 @@ public final class BluetoothQualityReport implements Parcelable {
                 return mBqrVsScoChoppy;
             case QUALITY_REPORT_ID_CONN_FAIL:
                 return mBqrConnectFail;
+            case QUALITY_REPORT_ID_VENDOR_SPECIFIC:
+                int vsId = mBqrCommon.getVendorQualityReportId();
+                if (vsId == QUALITY_REPORT_ID_VS_DISC_MONITOR) {
+                    return mBqrVsDiscMonitoring;
+                } else if (vsId == QUALITY_REPORT_ID_VS_MISC_MONITOR) {
+                    return mBqrVsMiscMonitoring;
+                } else {
+                    return null;
+                }
             default:
                 return null;
         }
@@ -458,15 +593,22 @@ public final class BluetoothQualityReport implements Parcelable {
     @SystemApi
     @Override
     public void writeToParcel(@NonNull Parcel out, int flags) {
+        out.writeBoolean(mVendorBqr5);
         out.writeString(mAddr);
         out.writeInt(mLmpVer);
         out.writeInt(mLmpSubVer);
         out.writeInt(mManufacturerId);
         out.writeString(mName);
         out.writeInt(mBluetoothClass.getClassOfDevice());
+
         mBqrCommon.writeToParcel(out, flags);
         int id = mBqrCommon.getQualityReportId();
-        if (id == QUALITY_REPORT_ID_APPROACH_LSTO) {
+
+        if (mVendorBqr5 == true && id == QUALITY_REPORT_ID_MONITOR) {
+            mBqrVsQualityMonitor.writeToParcel(out, flags);
+        } else if (mVendorBqr5 == false && id == QUALITY_REPORT_ID_MONITOR) {
+            return;
+        } else if (id == QUALITY_REPORT_ID_APPROACH_LSTO) {
             mBqrVsLsto.writeToParcel(out, flags);
         } else if (id == QUALITY_REPORT_ID_A2DP_CHOPPY) {
             mBqrVsA2dpChoppy.writeToParcel(out, flags);
@@ -474,6 +616,14 @@ public final class BluetoothQualityReport implements Parcelable {
             mBqrVsScoChoppy.writeToParcel(out, flags);
         } else if (id == QUALITY_REPORT_ID_CONN_FAIL) {
             mBqrConnectFail.writeToParcel(out, flags);
+        } else if(mVendorBqr5 == true &&
+                  id == QUALITY_REPORT_ID_VENDOR_SPECIFIC) {
+            int vsId = mBqrCommon.getVendorQualityReportId();
+            if (vsId == QUALITY_REPORT_ID_VS_DISC_MONITOR) {
+                mBqrVsDiscMonitoring.writeToParcel(out, flags);
+            } else if (vsId == QUALITY_REPORT_ID_VS_MISC_MONITOR) {
+                mBqrVsMiscMonitoring.writeToParcel(out, flags);
+            }
         }
     }
 
@@ -488,6 +638,8 @@ public final class BluetoothQualityReport implements Parcelable {
                 "BQR: {\n"
                         + "  mAddr: "
                         + mAddr
+                        +", mVendorBqr5: "
+                        + mVendorBqr5
                         + ", mLmpVer: "
                         + String.format("0x%02X", mLmpVer)
                         + ", mLmpSubVer: "
@@ -503,7 +655,11 @@ public final class BluetoothQualityReport implements Parcelable {
                         + "\n";
 
         int id = mBqrCommon.getQualityReportId();
-        if (id == QUALITY_REPORT_ID_APPROACH_LSTO) {
+        if (mVendorBqr5 == true && id == QUALITY_REPORT_ID_MONITOR) {
+            str += mBqrVsQualityMonitor + "\n}";
+        } else if(mVendorBqr5 == false && id == QUALITY_REPORT_ID_MONITOR) {
+            str += "}";
+        } else if (id == QUALITY_REPORT_ID_APPROACH_LSTO) {
             str += mBqrVsLsto + "\n}";
         } else if (id == QUALITY_REPORT_ID_A2DP_CHOPPY) {
             str += mBqrVsA2dpChoppy + "\n}";
@@ -511,8 +667,14 @@ public final class BluetoothQualityReport implements Parcelable {
             str += mBqrVsScoChoppy + "\n}";
         } else if (id == QUALITY_REPORT_ID_CONN_FAIL) {
             str += mBqrConnectFail + "\n}";
-        } else if (id == QUALITY_REPORT_ID_MONITOR) {
-            str += "}";
+        } else if(mVendorBqr5 == true &&
+                  id == QUALITY_REPORT_ID_VENDOR_SPECIFIC) {
+            int vsId = mBqrCommon.getVendorQualityReportId();
+            if (vsId == QUALITY_REPORT_ID_VS_DISC_MONITOR) {
+                str += mBqrVsDiscMonitoring + "\n}";
+            } else if (vsId == QUALITY_REPORT_ID_VS_MISC_MONITOR) {
+                str += mBqrVsMiscMonitoring + "\n}";
+            }
         }
 
         return str;
@@ -532,6 +694,7 @@ public final class BluetoothQualityReport implements Parcelable {
         private String remoteName;
         private BluetoothClass bluetoothClass;
         private byte[] rawData;
+        private boolean vendorBqr5;
 
         /**
          * Creates a new instance of {@link Builder}.
@@ -614,6 +777,20 @@ public final class BluetoothQualityReport implements Parcelable {
             this.remoteName = remoteName;
             return this;
         }
+        /**
+         * Sets the vendorBqr5 attribute for the new instance of {@link
+         * BluetoothQualityReport}.
+         *
+         * @param manufacturerId the vendorBqr5 attribute
+         * @hide
+         */
+        @NonNull
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public Builder setVendorBqr5(boolean vendorBqr5) {
+            this.vendorBqr5 = vendorBqr5;
+            return this;
+        }
 
         /**
          * Sets the Bluetooth Class of Remote Device attribute for the new instance of {@link
@@ -647,7 +824,8 @@ public final class BluetoothQualityReport implements Parcelable {
                     manufacturerId,
                     remoteName,
                     bluetoothClass,
-                    rawData);
+                    rawData,
+                    vendorBqr5);
         }
 
         private void validateBluetoothQualityReport() {
@@ -674,6 +852,7 @@ public final class BluetoothQualityReport implements Parcelable {
         static final int BQR_COMMON_LEN = 55;
 
         private int mQualityReportId;
+        private int mVendorQualityReportId;
         private int mPacketType;
         private int mConnectionHandle;
         private int mConnectionRole;
@@ -694,6 +873,7 @@ public final class BluetoothQualityReport implements Parcelable {
         private long mUnderflowCount;
         private String mAddr;
         private int mCalFailedItemCount;
+        private boolean mVendorBqr5;
 
         private BqrCommon(byte[] rawData, int offset) {
             if (rawData == null || rawData.length < offset + BQR_COMMON_LEN) {
@@ -737,32 +917,90 @@ public final class BluetoothQualityReport implements Parcelable {
             mCalFailedItemCount = bqrBuf.get() & 0xFF;
         }
 
+
+        private BqrCommon(byte[] rawData, int offset, boolean vendorBqr5) {
+            if (rawData == null || rawData.length < offset + 2) {
+                throw new IllegalArgumentException(TAG + ": BQR raw data length is abnormal.");
+            }
+
+            ByteBuffer bqrBuf = ByteBuffer.wrap(rawData, offset, rawData.length - offset)
+                                          .asReadOnlyBuffer();
+            bqrBuf.order(ByteOrder.LITTLE_ENDIAN);
+            mVendorBqr5 = vendorBqr5;
+            mQualityReportId = bqrBuf.get() & 0xFF;
+            if(mQualityReportId == QUALITY_REPORT_ID_VENDOR_SPECIFIC) {
+                mVendorQualityReportId = bqrBuf.get() & 0xFF;
+            } else {
+                mPacketType = bqrBuf.get() & 0xFF;
+                mConnectionHandle = bqrBuf.getShort() & 0xFFFF;
+                mConnectionRole = bqrBuf.get() & 0xFF;
+                mTxPowerLevel = bqrBuf.get() & 0xFF;
+                mRssi = bqrBuf.get();
+                mSnr = bqrBuf.get();
+                mUnusedAfhChannelCount = bqrBuf.get() & 0xFF;
+                mAfhSelectUnidealChannelCount = bqrBuf.get() & 0xFF;
+                mLsto = bqrBuf.getShort() & 0xFFFF;
+                mPiconetClock = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mRetransmissionCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mNoRxCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mNakCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mLastTxAckTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mFlowOffCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mLastFlowOnTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mOverflowCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mUnderflowCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                int currentOffset = bqrBuf.position();
+                mAddr =
+                        String.format(
+                                "%02X:%02X:%02X:%02X:%02X:%02X",
+                                bqrBuf.get(currentOffset + 5),
+                                bqrBuf.get(currentOffset + 4),
+                                bqrBuf.get(currentOffset + 3),
+                                bqrBuf.get(currentOffset + 2),
+                                bqrBuf.get(currentOffset + 1),
+                                bqrBuf.get(currentOffset + 0));
+                bqrBuf.position(currentOffset + 6);
+                mCalFailedItemCount = bqrBuf.get() & 0xFF;
+            }
+        }
+
         private BqrCommon(Parcel in) {
+            mVendorBqr5 = in.readBoolean();
             mQualityReportId = in.readInt();
-            mPacketType = in.readInt();
-            mConnectionHandle = in.readInt();
-            mConnectionRole = in.readInt();
-            mTxPowerLevel = in.readInt();
-            mRssi = in.readInt();
-            mSnr = in.readInt();
-            mUnusedAfhChannelCount = in.readInt();
-            mAfhSelectUnidealChannelCount = in.readInt();
-            mLsto = in.readInt();
-            mPiconetClock = in.readLong();
-            mRetransmissionCount = in.readLong();
-            mNoRxCount = in.readLong();
-            mNakCount = in.readLong();
-            mLastTxAckTimestamp = in.readLong();
-            mFlowOffCount = in.readLong();
-            mLastFlowOnTimestamp = in.readLong();
-            mOverflowCount = in.readLong();
-            mUnderflowCount = in.readLong();
-            mAddr = in.readString();
-            mCalFailedItemCount = in.readInt();
+            if(mVendorBqr5 == true &&
+               mQualityReportId == QUALITY_REPORT_ID_VENDOR_SPECIFIC) {
+                mVendorQualityReportId = in.readInt();
+            }  else {
+                mPacketType = in.readInt();
+                mConnectionHandle = in.readInt();
+                mConnectionRole = in.readInt();
+                mTxPowerLevel = in.readInt();
+                mRssi = in.readInt();
+                mSnr = in.readInt();
+                mUnusedAfhChannelCount = in.readInt();
+                mAfhSelectUnidealChannelCount = in.readInt();
+                mLsto = in.readInt();
+                mPiconetClock = in.readLong();
+                mRetransmissionCount = in.readLong();
+                mNoRxCount = in.readLong();
+                mNakCount = in.readLong();
+                mLastTxAckTimestamp = in.readLong();
+                mFlowOffCount = in.readLong();
+                mLastFlowOnTimestamp = in.readLong();
+                mOverflowCount = in.readLong();
+                mUnderflowCount = in.readLong();
+                mAddr = in.readString();
+                mCalFailedItemCount = in.readInt();
+            }
         }
 
         int getQualityReportId() {
             return mQualityReportId;
+        }
+
+
+        int getVendorQualityReportId() {
+            return mVendorQualityReportId;
         }
 
         static String qualityReportIdToString(@QualityReportId int id) {
@@ -777,6 +1015,19 @@ public final class BluetoothQualityReport implements Parcelable {
                     return "SCO choppy";
                 case QUALITY_REPORT_ID_CONN_FAIL:
                     return "Connect fail";
+                case QUALITY_REPORT_ID_VENDOR_SPECIFIC:
+                    return "Vendor specific";
+                default:
+                    return "INVALID";
+            }
+        }
+
+        static String vendorQualityReportToString(@QualityReportId int id) {
+            switch (id) {
+                case QUALITY_REPORT_ID_VS_DISC_MONITOR:
+                    return "Discovery Monitor";
+                case QUALITY_REPORT_ID_VS_MISC_MONITOR:
+                    return "Misc Monitor";
                 default:
                     return "INVALID";
             }
@@ -1070,27 +1321,33 @@ public final class BluetoothQualityReport implements Parcelable {
         @SystemApi
         @Override
         public void writeToParcel(@NonNull Parcel dest, int flags) {
+            dest.writeBoolean(mVendorBqr5);
             dest.writeInt(mQualityReportId);
-            dest.writeInt(mPacketType);
-            dest.writeInt(mConnectionHandle);
-            dest.writeInt(mConnectionRole);
-            dest.writeInt(mTxPowerLevel);
-            dest.writeInt(mRssi);
-            dest.writeInt(mSnr);
-            dest.writeInt(mUnusedAfhChannelCount);
-            dest.writeInt(mAfhSelectUnidealChannelCount);
-            dest.writeInt(mLsto);
-            dest.writeLong(mPiconetClock);
-            dest.writeLong(mRetransmissionCount);
-            dest.writeLong(mNoRxCount);
-            dest.writeLong(mNakCount);
-            dest.writeLong(mLastTxAckTimestamp);
-            dest.writeLong(mFlowOffCount);
-            dest.writeLong(mLastFlowOnTimestamp);
-            dest.writeLong(mOverflowCount);
-            dest.writeLong(mUnderflowCount);
-            dest.writeString(mAddr);
-            dest.writeInt(mCalFailedItemCount);
+            if(mVendorBqr5 == true &&
+               mQualityReportId == QUALITY_REPORT_ID_VENDOR_SPECIFIC) {
+                dest.writeInt(mVendorQualityReportId);
+            } else {
+                dest.writeInt(mPacketType);
+                dest.writeInt(mConnectionHandle);
+                dest.writeInt(mConnectionRole);
+                dest.writeInt(mTxPowerLevel);
+                dest.writeInt(mRssi);
+                dest.writeInt(mSnr);
+                dest.writeInt(mUnusedAfhChannelCount);
+                dest.writeInt(mAfhSelectUnidealChannelCount);
+                dest.writeInt(mLsto);
+                dest.writeLong(mPiconetClock);
+                dest.writeLong(mRetransmissionCount);
+                dest.writeLong(mNoRxCount);
+                dest.writeLong(mNakCount);
+                dest.writeLong(mLastTxAckTimestamp);
+                dest.writeLong(mFlowOffCount);
+                dest.writeLong(mLastFlowOnTimestamp);
+                dest.writeLong(mOverflowCount);
+                dest.writeLong(mUnderflowCount);
+                dest.writeString(mAddr);
+                dest.writeInt(mCalFailedItemCount);
+            }
         }
 
         /** @hide */
@@ -1113,65 +1370,184 @@ public final class BluetoothQualityReport implements Parcelable {
         @NonNull
         public String toString() {
             String str;
-            str =
-                    "  BqrCommon: {\n"
-                            + "    mQualityReportId: "
-                            + qualityReportIdToString(getQualityReportId())
-                            + "("
-                            + String.format("0x%02X", mQualityReportId)
-                            + ")"
-                            + ", mPacketType: "
-                            + packetTypeToString(mPacketType)
-                            + "("
-                            + String.format("0x%02X", mPacketType)
-                            + ")"
-                            + ", mConnectionHandle: "
-                            + String.format("0x%04X", mConnectionHandle)
-                            + ", mConnectionRole: "
-                            + getConnectionRole()
-                            + "("
-                            + mConnectionRole
-                            + ")"
-                            + ", mTxPowerLevel: "
-                            + mTxPowerLevel
-                            + ", mRssi: "
-                            + mRssi
-                            + ", mSnr: "
-                            + mSnr
-                            + ", mUnusedAfhChannelCount: "
-                            + mUnusedAfhChannelCount
-                            + ",\n"
-                            + "    mAfhSelectUnidealChannelCount: "
-                            + mAfhSelectUnidealChannelCount
-                            + ", mLsto: "
-                            + mLsto
-                            + ", mPiconetClock: "
-                            + String.format("0x%08X", mPiconetClock)
-                            + ", mRetransmissionCount: "
-                            + mRetransmissionCount
-                            + ", mNoRxCount: "
-                            + mNoRxCount
-                            + ", mNakCount: "
-                            + mNakCount
-                            + ", mLastTxAckTimestamp: "
-                            + String.format("0x%08X", mLastTxAckTimestamp)
-                            + ", mFlowOffCount: "
-                            + mFlowOffCount
-                            + ",\n"
-                            + "    mLastFlowOnTimestamp: "
-                            + String.format("0x%08X", mLastFlowOnTimestamp)
-                            + ", mOverflowCount: "
-                            + mOverflowCount
-                            + ", mUnderflowCount: "
-                            + mUnderflowCount
-                            + ", mAddr: "
-                            + mAddr
-                            + ", mCalFailedItemCount: "
-                            + mCalFailedItemCount
-                            + "\n  }";
+               if(mVendorBqr5 == true &&
+               mQualityReportId == QUALITY_REPORT_ID_VENDOR_SPECIFIC) {
+                str =  "  BqrCommon: {\n"
+                 + "    mQualityReportId: " + qualityReportIdToString(getQualityReportId())
+                                            + "(" + String.format("0x%02X", mQualityReportId) + ")"
+                 + "    mVendorQualityReportId: " + vendorQualityReportToString(getVendorQualityReportId())
+                                            + "(" + String.format("0x%02X", mVendorQualityReportId) + ")"
+                 + "\n  }";
+                 return str;
+            } else {
+               str =
+                       "  BqrCommon: {\n"
+                               + "    mQualityReportId: "
+                               + qualityReportIdToString(getQualityReportId())
+                               + "("
+                               + String.format("0x%02X", mQualityReportId)
+                               + ")"
+                               + ", mPacketType: "
+                               + packetTypeToString(mPacketType)
+                               + "("
+                               + String.format("0x%02X", mPacketType)
+                               + ")"
+                               + ", mConnectionHandle: "
+                               + String.format("0x%04X", mConnectionHandle)
+                               + ", mConnectionRole: "
+                               + getConnectionRole()
+                               + "("
+                               + mConnectionRole
+                               + ")"
+                               + ", mTxPowerLevel: "
+                               + mTxPowerLevel
+                               + ", mRssi: "
+                               + mRssi
+                               + ", mSnr: "
+                               + mSnr
+                               + ", mUnusedAfhChannelCount: "
+                               + mUnusedAfhChannelCount
+                               + ",\n"
+                               + "    mAfhSelectUnidealChannelCount: "
+                               + mAfhSelectUnidealChannelCount
+                               + ", mLsto: "
+                               + mLsto
+                               + ", mPiconetClock: "
+                               + String.format("0x%08X", mPiconetClock)
+                               + ", mRetransmissionCount: "
+                               + mRetransmissionCount
+                               + ", mNoRxCount: "
+                               + mNoRxCount
+                               + ", mNakCount: "
+                               + mNakCount
+                               + ", mLastTxAckTimestamp: "
+                               + String.format("0x%08X", mLastTxAckTimestamp)
+                               + ", mFlowOffCount: "
+                               + mFlowOffCount
+                               + ",\n"
+                               + "    mLastFlowOnTimestamp: "
+                               + String.format("0x%08X", mLastFlowOnTimestamp)
+                               + ", mOverflowCount: "
+                               + mOverflowCount
+                               + ", mUnderflowCount: "
+                               + mUnderflowCount
+                               + ", mAddr: "
+                               + mAddr
+                               + ", mCalFailedItemCount: "
+                               + mCalFailedItemCount
+                               + "\n  }";
+
+               return str;
+            }
+        }
+    }
+
+    /**
+     * This class provides the System APIs to access the vendor specific part of Quality monitor
+     * event.
+     *
+     * @hide
+     */
+    @SystemApi
+    @SuppressLint("UnflaggedApi")
+    public static final class BqrVsQualityMonitor implements Parcelable {
+        private static final String TAG = BluetoothQualityReport.TAG + ".BqrVsQualityMonitor";
+        private int mPowerLevelInDbm;
+        private long mCrcErrorCount;
+        private long mDecryptErrorCount;
+        private long mLastSniffStartTimestamp;
+        private long mLastActiveStartTimestamp;
+
+        private BqrVsQualityMonitor(byte[] rawData, int offset) {
+            if (rawData == null || rawData.length <= offset) {
+                throw new IllegalArgumentException(TAG + ": BQR raw data length is abnormal.");
+            }
+
+            ByteBuffer bqrBuf = ByteBuffer.wrap(rawData, offset, rawData.length - offset)
+                                           .asReadOnlyBuffer();
+            bqrBuf.order(ByteOrder.LITTLE_ENDIAN);
+            mPowerLevelInDbm = bqrBuf.get() & 0xFF;
+            mCrcErrorCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mDecryptErrorCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mLastSniffStartTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mLastActiveStartTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+
+        }
+
+        private BqrVsQualityMonitor(Parcel in) {
+            mPowerLevelInDbm = in.readInt();
+            mCrcErrorCount = in.readLong();
+            mDecryptErrorCount = in.readLong();
+            mLastSniffStartTimestamp = in.readLong();
+            mLastActiveStartTimestamp = in.readLong();
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public int getPowerLevelInDbm() {
+            return mPowerLevelInDbm;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getCrcErrorCount() {
+            return mCrcErrorCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getDecryptErrorCount() {
+            return mDecryptErrorCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getLastSniffStartTimestamp() {
+            return mLastSniffStartTimestamp;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getLastActiveStartTimestamp() {
+            return mLastActiveStartTimestamp;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public int describeContents(){
+            return 0;
+        }
+        @Override
+        @SuppressLint("UnflaggedApi")
+        public void writeToParcel(@NonNull Parcel dest, int flags) {
+            dest.writeInt(mPowerLevelInDbm);
+            dest.writeLong(mCrcErrorCount);
+            dest.writeLong(mDecryptErrorCount);
+            dest.writeLong(mLastSniffStartTimestamp);
+            dest.writeLong(mLastActiveStartTimestamp);
+        }
+
+        /** @hide */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public static final @NonNull Parcelable.Creator<BqrVsQualityMonitor> CREATOR =
+                new Parcelable.Creator<BqrVsQualityMonitor>() {
+                    public BqrVsQualityMonitor createFromParcel(Parcel in) {
+                        return new BqrVsQualityMonitor(in);
+                    }
+
+                    public BqrVsQualityMonitor[] newArray(int size) {
+                        return new BqrVsQualityMonitor[size];
+                    }
+                };
+        @Override
+        public String toString() {
+            String str;
+            str =  "  BqrVsQualityMonitor: {\n"
+                     + ", mPowerLevelInDbm: " + mPowerLevelInDbm
+                     + ", mCrcErrorCount: " + mCrcErrorCount
+                     + ", mDecryptErrorCount: " + mDecryptErrorCount
+                     + ", mLastSniffStartTimestamp: " + mLastSniffStartTimestamp
+                     + ", mLastActiveStartTimestamp: " + mLastActiveStartTimestamp
+                     + "\n  }";
 
             return str;
         }
+
     }
 
     /**
@@ -1184,6 +1560,7 @@ public final class BluetoothQualityReport implements Parcelable {
     public static final class BqrVsLsto implements Parcelable {
         private static final String TAG = BluetoothQualityReport.TAG + ".BqrVsLsto";
 
+        static final int BQR_VS_LSTO_LEN = 26;
         private int mConnState;
         private long mBasebandStats;
         private long mSlotsUsed;
@@ -1192,10 +1569,21 @@ public final class BluetoothQualityReport implements Parcelable {
         private int mRfLoss;
         private long mNativeClock;
         private long mLastTxAckTimestamp;
+        private int mPowerLevelInDbm;
+        private long mCrcErrorCount;
+        private long mDecryptErrorCount;
+        private long mLastSniffStartTimestamp;
+        private long mLastActiveStartTimestamp;
+        private boolean isExtended;
 
         private BqrVsLsto(byte[] rawData, int offset) {
             if (rawData == null || rawData.length <= offset) {
                 throw new IllegalArgumentException(TAG + ": BQR raw data length is abnormal.");
+            }
+            if ((rawData.length - offset) > BQR_VS_LSTO_LEN) {
+                isExtended = true;
+            } else {
+                isExtended = false;
             }
 
             ByteBuffer bqrBuf =
@@ -1210,9 +1598,18 @@ public final class BluetoothQualityReport implements Parcelable {
             mRfLoss = bqrBuf.getShort() & 0xFFFF;
             mNativeClock = bqrBuf.getInt() & 0xFFFFFFFFL;
             mLastTxAckTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mPowerLevelInDbm = bqrBuf.get() & 0xFF;
+
+            if(isExtended) {
+                mCrcErrorCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mDecryptErrorCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mLastSniffStartTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mLastActiveStartTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+            }
         }
 
         private BqrVsLsto(Parcel in) {
+            isExtended = in.readBoolean();
             mConnState = in.readInt();
             mBasebandStats = in.readLong();
             mSlotsUsed = in.readLong();
@@ -1221,6 +1618,13 @@ public final class BluetoothQualityReport implements Parcelable {
             mRfLoss = in.readInt();
             mNativeClock = in.readLong();
             mLastTxAckTimestamp = in.readLong();
+            mPowerLevelInDbm = in.readInt();
+            if(isExtended){
+                mCrcErrorCount = in.readLong();
+                mDecryptErrorCount = in.readLong();
+                mLastSniffStartTimestamp = in.readLong();
+                mLastActiveStartTimestamp = in.readLong();
+            }
         }
 
         /**
@@ -1233,6 +1637,19 @@ public final class BluetoothQualityReport implements Parcelable {
         public int getConnState() {
             return mConnState;
         }
+
+
+        /**
+         * Is extended to have few more params.
+         * @return true or false.
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public boolean isExtended() {
+            return isExtended;
+        }
+
 
         /**
          * Get the string of conn state of sco.
@@ -1311,6 +1728,62 @@ public final class BluetoothQualityReport implements Parcelable {
         public long getNativeClock() {
             return mNativeClock;
         }
+        /**
+         * Get the Power level dissipated.
+         *
+         * @return the power level
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public int getPowerLevelInDbm() {
+            return mPowerLevelInDbm;
+        }
+        /**
+         * Get the crc error count.
+         *
+         * @return the count of crc error
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public long getCrcErrorCount() {
+            return mCrcErrorCount;
+        }
+        /**
+         * Get the decrypt error count.
+         *
+         * @return the count of decrypt error
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public long getDecryptErrorCount() {
+            return mDecryptErrorCount;
+        }
+        /**
+         * Get the lastsniftimestamp.
+         *
+         * @return the lastsniftimestamp
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public long getLastSniffStartTimestamp() {
+            return mLastSniffStartTimestamp;
+        }
+        /**
+         * Get the lastactivetimestamp.
+         *
+         * @return the lastactivetimestamp
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public long getLastActiveStartTimestamp() {
+            return mLastActiveStartTimestamp;
+        }
+
 
         /**
          * Get the timestamp of last TX ACK. time_ms: N * 0.3125 ms (1 Bluetooth Clock).
@@ -1319,6 +1792,7 @@ public final class BluetoothQualityReport implements Parcelable {
          * @hide
          */
         @SystemApi
+        @SuppressLint("UnflaggedApi")
         public long getLastTxAckTimestamp() {
             return mLastTxAckTimestamp;
         }
@@ -1341,6 +1815,7 @@ public final class BluetoothQualityReport implements Parcelable {
         @SystemApi
         @Override
         public void writeToParcel(@NonNull Parcel dest, int flags) {
+            dest.writeBoolean(isExtended);
             dest.writeInt(mConnState);
             dest.writeLong(mBasebandStats);
             dest.writeLong(mSlotsUsed);
@@ -1349,6 +1824,14 @@ public final class BluetoothQualityReport implements Parcelable {
             dest.writeInt(mRfLoss);
             dest.writeLong(mNativeClock);
             dest.writeLong(mLastTxAckTimestamp);
+            dest.writeInt(mPowerLevelInDbm);
+            if(isExtended){
+                dest.writeLong(mCrcErrorCount);
+                dest.writeLong(mDecryptErrorCount);
+                dest.writeLong(mLastSniffStartTimestamp);
+                dest.writeLong(mLastActiveStartTimestamp);
+            }
+
         }
 
         /** @hide */
@@ -1378,6 +1861,8 @@ public final class BluetoothQualityReport implements Parcelable {
                             + "("
                             + String.format("0x%02X", mConnState)
                             + ")"
+                            + ", isExtended: "
+                            + isExtended
                             + ", mBasebandStats: "
                             + String.format("0x%08X", mBasebandStats)
                             + ", mSlotsUsed: "
@@ -1392,7 +1877,16 @@ public final class BluetoothQualityReport implements Parcelable {
                             + String.format("0x%08X", mNativeClock)
                             + ", mLastTxAckTimestamp: "
                             + String.format("0x%08X", mLastTxAckTimestamp)
+                            +", mPowerLevelInDbm: "
+                            +mPowerLevelInDbm
                             + "\n  }";
+                    if (isExtended) {
+                    str  += ", mCrcErrorCount: " + mCrcErrorCount
+                         + ", mDecryptErrorCount: " + mDecryptErrorCount
+                         + ", mLastSniffStartTimestamp: " + mLastSniffStartTimestamp
+                         + ", mLastActiveStartTimestamp: " + mLastActiveStartTimestamp
+                         + "\n  }";
+                }
 
             return str;
         }
@@ -1406,6 +1900,7 @@ public final class BluetoothQualityReport implements Parcelable {
     @SystemApi
     public static final class BqrVsA2dpChoppy implements Parcelable {
         private static final String TAG = BluetoothQualityReport.TAG + ".BqrVsA2dpChoppy";
+        private static final int BQR_VS_A2DPCHOPPY_LEN = 16;
 
         private long mArrivalTime;
         private long mScheduleTime;
@@ -1414,33 +1909,102 @@ public final class BluetoothQualityReport implements Parcelable {
         private int mRxCxmDenials;
         private int mAclTxQueueLength;
         private int mLinkQuality;
+        private int mPowerLevelInDbm;
+        private int mA2dpRole;
+        private long mCrcErrorCount;
+        private long mDecryptErrorCount;
+        private long mLastSniffStartTimestamp;
+        private long mLastActiveStartTimestamp;
+        private long mFlushedA2dpPacketCount;
+        private long mSinkJitterBufferOverrunCount;
+        private long mSinkJitterUnderrunCount;
+        private long mSinkRetransmissionAckCount;
+        private boolean isExtended;
+        private int role;
 
         private BqrVsA2dpChoppy(byte[] rawData, int offset) {
             if (rawData == null || rawData.length <= offset) {
                 throw new IllegalArgumentException(TAG + ": BQR raw data length is abnormal.");
             }
 
+            if ((rawData.length - offset) > BQR_VS_A2DPCHOPPY_LEN) {
+                isExtended = true;
+            } else {
+                isExtended = false;
+            }
+            if (isExtended == true) {
+                int roleOffset = 16;
+                ByteBuffer bqrBufRole = ByteBuffer.wrap(rawData, offset, rawData.length - (offset + roleOffset))
+                                              .asReadOnlyBuffer();
+                role = bqrBufRole.get() & 0xFF;
+            } else {
+                role = 1;  // TODO to macro
+            }
+
             ByteBuffer bqrBuf =
                     ByteBuffer.wrap(rawData, offset, rawData.length - offset).asReadOnlyBuffer();
             bqrBuf.order(ByteOrder.LITTLE_ENDIAN);
 
-            mArrivalTime = bqrBuf.getInt() & 0xFFFFFFFFL;
-            mScheduleTime = bqrBuf.getInt() & 0xFFFFFFFFL;
-            mGlitchCount = bqrBuf.getShort() & 0xFFFF;
-            mTxCxmDenials = bqrBuf.getShort() & 0xFFFF;
-            mRxCxmDenials = bqrBuf.getShort() & 0xFFFF;
-            mAclTxQueueLength = bqrBuf.get() & 0xFF;
-            mLinkQuality = bqrBuf.get() & 0xFF;
+            if (isExtended == true) {
+                mArrivalTime = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mScheduleTime = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mGlitchCount = bqrBuf.getShort() & 0xFFFF;
+                mTxCxmDenials = bqrBuf.getShort() & 0xFFFF;
+                mRxCxmDenials = bqrBuf.getShort() & 0xFFFF;
+                mAclTxQueueLength = bqrBuf.get() & 0xFF;
+                mLinkQuality = bqrBuf.get() & 0xFF;
+                mPowerLevelInDbm = bqrBuf.get() & 0xFF;
+                mA2dpRole = bqrBuf.get() & 0xFF;
+                mCrcErrorCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mDecryptErrorCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mLastSniffStartTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mLastActiveStartTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mFlushedA2dpPacketCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mSinkJitterBufferOverrunCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mSinkJitterUnderrunCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mSinkRetransmissionAckCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            }  else {
+                mArrivalTime = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mScheduleTime = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mGlitchCount = bqrBuf.getShort() & 0xFFFF;
+                mTxCxmDenials = bqrBuf.getShort() & 0xFFFF;
+                mRxCxmDenials = bqrBuf.getShort() & 0xFFFF;
+                mAclTxQueueLength = bqrBuf.get() & 0xFF;
+                mLinkQuality = bqrBuf.get() & 0xFF;
+                mPowerLevelInDbm = bqrBuf.get() & 0xFF;
+            }
         }
 
         private BqrVsA2dpChoppy(Parcel in) {
-            mArrivalTime = in.readLong();
-            mScheduleTime = in.readLong();
-            mGlitchCount = in.readInt();
-            mTxCxmDenials = in.readInt();
-            mRxCxmDenials = in.readInt();
-            mAclTxQueueLength = in.readInt();
-            mLinkQuality = in.readInt();
+            isExtended = in.readBoolean();
+            if (isExtended == true) {
+                mArrivalTime = in.readLong();
+                mScheduleTime = in.readLong();
+                mGlitchCount = in.readInt();
+                mTxCxmDenials = in.readInt();
+                mRxCxmDenials = in.readInt();
+                mAclTxQueueLength = in.readInt();
+                mLinkQuality = in.readInt();
+                mPowerLevelInDbm = in.readInt();
+                mA2dpRole = in.readInt();
+                mCrcErrorCount = in.readLong();
+                mDecryptErrorCount = in.readLong();
+                mLastSniffStartTimestamp = in.readLong();
+                mLastActiveStartTimestamp = in.readLong();
+                mFlushedA2dpPacketCount = in.readLong();
+                mSinkJitterBufferOverrunCount = in.readLong();
+                mSinkJitterUnderrunCount = in.readLong();
+                mSinkRetransmissionAckCount = in.readLong();
+            } else {
+                mArrivalTime = in.readLong();
+                mScheduleTime = in.readLong();
+                mGlitchCount = in.readInt();
+                mTxCxmDenials = in.readInt();
+                mRxCxmDenials = in.readInt();
+                mAclTxQueueLength = in.readInt();
+                mLinkQuality = in.readInt();
+                mPowerLevelInDbm = in.readInt();
+            }
         }
 
         /**
@@ -1475,6 +2039,17 @@ public final class BluetoothQualityReport implements Parcelable {
         public int getGlitchCount() {
             return mGlitchCount;
         }
+        /**
+         * Get the a2dp sink glitch count since the last event.
+         *
+         * @return the a2dp glitch count
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public int getSinkGlitchCount() {
+            return mGlitchCount;
+        }
 
         /**
          * Get the count of Coex TX denials.
@@ -1495,6 +2070,28 @@ public final class BluetoothQualityReport implements Parcelable {
          */
         @SystemApi
         public int getRxCxmDenials() {
+            return mRxCxmDenials;
+        }
+        /**
+         * Get the count of sink Coex TX denials.
+         *
+         * @return the count of Coex TX denials
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public int getSinkTxCxmDenials() {
+            return mTxCxmDenials;
+        }
+        /**
+         * Get the count of sink Coex RX denials.
+         *
+         * @return the count of sink Coex RX denials
+         * @hide
+         */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public int getSinkRxCxmDenials() {
             return mRxCxmDenials;
         }
 
@@ -1539,8 +2136,87 @@ public final class BluetoothQualityReport implements Parcelable {
          * @return 0
          * @hide
          */
+        @SuppressLint("UnflaggedApi")
         public int describeContents() {
             return 0;
+        }
+
+        @SuppressLint("UnflaggedApi")
+       public int getPowerLevelInDbm() {
+            return mPowerLevelInDbm;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public int getA2dpRole() {
+            return mA2dpRole;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getCrcErrorCount() {
+            return mCrcErrorCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getSinkCrcErrorCount() {
+            return mCrcErrorCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getDecryptErrorCount() {
+            return mDecryptErrorCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getSinkDecryptErrorCount() {
+            return mDecryptErrorCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getLastSniffStartTimestamp() {
+            return mLastSniffStartTimestamp;
+        }
+        @SuppressLint("UnflaggedApi")
+        public long getSinkLastSniffStartTimestamp() {
+            return mLastSniffStartTimestamp;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getLastActiveStartTimestamp() {
+            return mLastActiveStartTimestamp;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getSinkLastActiveStartTimestamp() {
+            return mLastActiveStartTimestamp;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getFlushedA2dpPacketCount() {
+            return mFlushedA2dpPacketCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getSinkA2dpJitterBufferOverrunCount() {
+            return mSinkJitterBufferOverrunCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getSinkA2dpJitterUnderrunCount() {
+            return mSinkJitterUnderrunCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getSinkA2dpReTransmissionAckCounnt() {
+            return mSinkRetransmissionAckCount;
+        }
+
+        /**
+         * Is extended to have few more params.
+         * @return true or false.
+         */
+        @SuppressLint("UnflaggedApi")
+        public boolean isExtended() {
+            return isExtended;
         }
 
         /**
@@ -1551,13 +2227,35 @@ public final class BluetoothQualityReport implements Parcelable {
         @SystemApi
         @Override
         public void writeToParcel(@NonNull Parcel dest, int flags) {
-            dest.writeLong(mArrivalTime);
-            dest.writeLong(mScheduleTime);
-            dest.writeInt(mGlitchCount);
-            dest.writeInt(mTxCxmDenials);
-            dest.writeInt(mRxCxmDenials);
-            dest.writeInt(mAclTxQueueLength);
-            dest.writeInt(mLinkQuality);
+           dest.writeBoolean(isExtended);
+           if (isExtended == true) {
+               dest.writeLong(mArrivalTime);
+               dest.writeLong(mScheduleTime);
+               dest.writeInt(mGlitchCount);
+               dest.writeInt(mTxCxmDenials);
+               dest.writeInt(mRxCxmDenials);
+               dest.writeInt(mAclTxQueueLength);
+               dest.writeInt(mLinkQuality);
+               dest.writeInt(mPowerLevelInDbm);
+               dest.writeInt(mA2dpRole);
+               dest.writeLong(mCrcErrorCount);
+               dest.writeLong(mDecryptErrorCount);
+               dest.writeLong(mLastSniffStartTimestamp);
+               dest.writeLong(mLastActiveStartTimestamp);
+               dest.writeLong(mFlushedA2dpPacketCount);
+               dest.writeLong(mSinkJitterBufferOverrunCount);
+               dest.writeLong(mSinkJitterUnderrunCount);
+               dest.writeLong(mSinkRetransmissionAckCount);
+           }   else {
+               dest.writeLong(mArrivalTime);
+               dest.writeLong(mScheduleTime);
+               dest.writeInt(mGlitchCount);
+               dest.writeInt(mTxCxmDenials);
+               dest.writeInt(mRxCxmDenials);
+               dest.writeInt(mAclTxQueueLength);
+               dest.writeInt(mLinkQuality);
+               dest.writeInt(mPowerLevelInDbm);
+           }
         }
 
         /** @hide */
@@ -1582,7 +2280,9 @@ public final class BluetoothQualityReport implements Parcelable {
             String str;
             str =
                     "  BqrVsA2dpChoppy: {\n"
-                            + "    mArrivalTime: "
+                            + " isExtended: "
+                            + isExtended
+                            + ", mArrivalTime: "
                             + String.format("0x%08X", mArrivalTime)
                             + ", mScheduleTime: "
                             + String.format("0x%08X", mScheduleTime)
@@ -1600,6 +2300,18 @@ public final class BluetoothQualityReport implements Parcelable {
                             + String.format("0x%02X", mLinkQuality)
                             + ")"
                             + "\n  }";
+                        if(isExtended) {
+                             str += "mA2dpRole: " + mA2dpRole
+                              + ", mCrcErrorCount: " + mCrcErrorCount
+                              + ", mDecryptErrorCount: " + mDecryptErrorCount
+                              + ", mLastSniffStartTimestamp: " + mLastSniffStartTimestamp
+                              + ", mLastActiveStartTimestamp:" + mLastActiveStartTimestamp
+                              + ", mFlushedA2dpPacketCount: " + mFlushedA2dpPacketCount
+                              + ", mSinkJitterBufferOverrunCount: " + mSinkJitterBufferOverrunCount
+                              + ", mSinkJitterUnderrunCount: " + mSinkJitterUnderrunCount
+                              + ", mSinkRetransmissionAckCount: " + mSinkRetransmissionAckCount
+                              + "\n  }";
+                        }
 
             return str;
         }
@@ -1613,6 +2325,7 @@ public final class BluetoothQualityReport implements Parcelable {
     @SystemApi
     public static final class BqrVsScoChoppy implements Parcelable {
         private static final String TAG = BluetoothQualityReport.TAG + ".BqrVsScoChoppy";
+        private static final int BQR_VS_SCOCHOPPY_LEN = 34;
 
         private int mGlitchCount;
         private int mIntervalEsco;
@@ -1632,10 +2345,22 @@ public final class BluetoothQualityReport implements Parcelable {
         private int mTxRetransmitSlotCount;
         private int mRxRetransmitSlotCount;
         private int mGoodRxFrameCount;
+        private int mPowerLevelInDbm;
+        private long mCrcErrorCount;
+        private long mDecryptErrorCount;
+        private long mLastSniffStartTimestamp;
+        private long mLastActiveStartTimestamp;
+        private boolean isExtended;
 
         private BqrVsScoChoppy(byte[] rawData, int offset) {
             if (rawData == null || rawData.length <= offset) {
                 throw new IllegalArgumentException(TAG + ": BQR raw data length is abnormal.");
+            }
+            if((rawData.length - offset) > BQR_VS_SCOCHOPPY_LEN){
+                isExtended = true;
+            }
+            else{
+                isExtended = false;
             }
 
             ByteBuffer bqrBuf =
@@ -1660,9 +2385,17 @@ public final class BluetoothQualityReport implements Parcelable {
             mTxRetransmitSlotCount = bqrBuf.getShort() & 0xFFFF;
             mRxRetransmitSlotCount = bqrBuf.getShort() & 0xFFFF;
             mGoodRxFrameCount = bqrBuf.getShort() & 0xFFFF;
+            mPowerLevelInDbm = bqrBuf.get() & 0xFF;
+            if(isExtended) {
+                mCrcErrorCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mDecryptErrorCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mLastSniffStartTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+                mLastActiveStartTimestamp = bqrBuf.getInt() & 0xFFFFFFFFL;
+            }
         }
 
         private BqrVsScoChoppy(Parcel in) {
+            isExtended = in.readBoolean();
             mGlitchCount = in.readInt();
             mIntervalEsco = in.readInt();
             mWindowEsco = in.readInt();
@@ -1681,6 +2414,13 @@ public final class BluetoothQualityReport implements Parcelable {
             mTxRetransmitSlotCount = in.readInt();
             mRxRetransmitSlotCount = in.readInt();
             mGoodRxFrameCount = in.readInt();
+            mPowerLevelInDbm = in.readInt();
+            if (isExtended) {
+                mCrcErrorCount = in.readLong();
+                mDecryptErrorCount = in.readLong();
+                mLastSniffStartTimestamp = in.readLong();
+                mLastActiveStartTimestamp = in.readLong();
+            }
         }
 
         /**
@@ -1897,6 +2637,31 @@ public final class BluetoothQualityReport implements Parcelable {
             return mGoodRxFrameCount;
         }
 
+        @SuppressLint("UnflaggedApi")
+        public int getPowerLevelInDbm() {
+            return mPowerLevelInDbm;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getCrcErrorCount() {
+            return mCrcErrorCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getDecryptErrorCount() {
+            return mDecryptErrorCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getLastSniffStartTimestamp() {
+            return mLastSniffStartTimestamp;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getLastActiveStartTimestamp() {
+            return mLastActiveStartTimestamp;
+        }
+
         /**
          * Describe contents.
          *
@@ -1907,6 +2672,16 @@ public final class BluetoothQualityReport implements Parcelable {
             return 0;
         }
 
+
+        /**
+         * Is extended to have few more params.
+         * @return true or false.
+         */
+        @SuppressLint("UnflaggedApi")
+        public boolean isExtended() {
+            return isExtended;
+        }
+
         /**
          * Write BqrVsScoChoppy to parcel.
          *
@@ -1915,6 +2690,7 @@ public final class BluetoothQualityReport implements Parcelable {
         @SystemApi
         @Override
         public void writeToParcel(@NonNull Parcel dest, int flags) {
+            dest.writeBoolean(isExtended);
             dest.writeInt(mGlitchCount);
             dest.writeInt(mIntervalEsco);
             dest.writeInt(mWindowEsco);
@@ -1933,6 +2709,13 @@ public final class BluetoothQualityReport implements Parcelable {
             dest.writeInt(mTxRetransmitSlotCount);
             dest.writeInt(mRxRetransmitSlotCount);
             dest.writeInt(mGoodRxFrameCount);
+            dest.writeInt(mPowerLevelInDbm);
+            if(isExtended){
+                dest.writeLong(mCrcErrorCount);
+                dest.writeLong(mDecryptErrorCount);
+                dest.writeLong(mLastSniffStartTimestamp);
+                dest.writeLong(mLastActiveStartTimestamp);
+            }
         }
 
         /** @hide */
@@ -1957,6 +2740,8 @@ public final class BluetoothQualityReport implements Parcelable {
             String str;
             str =
                     "  BqrVsScoChoppy: {\n"
+                            + " isExtended: "
+                            + isExtended
                             + "    mGlitchCount: "
                             + mGlitchCount
                             + ", mIntervalEsco: "
@@ -1998,10 +2783,276 @@ public final class BluetoothQualityReport implements Parcelable {
                             + mRxRetransmitSlotCount
                             + ", mGoodRxFrameCount: "
                             + mGoodRxFrameCount
+                            + ", mPowerLevelInDbm: "
+                            +mPowerLevelInDbm
                             + "\n  }";
+                        if (isExtended) {
+                            str += ", mCrcErrorCount: " + mCrcErrorCount
+                                 + ", mDecryptErrorCount: " + mDecryptErrorCount
+                                 + ", mLastSniffStartTimestamp: " + mLastSniffStartTimestamp
+                                 + ", mLastActiveStartTimestamp: " + mLastActiveStartTimestamp
+                                 + "\n  }";
+                        }
 
             return str;
         }
+    }
+
+    /**
+     * This class provides the System APIs to access the vendor specific part of Disc Monitor event.
+     *
+     * @hide
+     */
+    @SystemApi
+    @SuppressLint("UnflaggedApi")
+    public static final class BqrVsDiscoveryMonitoring implements Parcelable {
+        private static final String TAG = BluetoothQualityReport.TAG + ".BqrVsDiscoveryMonitoring";
+        private long mInquiryCount;
+        private long mInquiryScanWindowCount;
+        private long mInquiryScanWindowDuration;
+        private long mPageScanWindowCount;
+        private long mPageScanWindowDuration;
+        private long mBleAdvertisementCount;
+        private long mBleScanWindowCount;
+        private long mBleScanWindowDuration;
+        private long mBleScanRequestCount;
+        private long mBleScanResponseCount;
+
+        private BqrVsDiscoveryMonitoring(byte[] rawData, int offset) {
+            if (rawData == null || rawData.length <= offset) {
+                throw new IllegalArgumentException(TAG + ": BQR raw data length is abnormal.");
+            }
+
+            ByteBuffer bqrBuf = ByteBuffer.wrap(rawData, offset, rawData.length - offset)
+                                           .asReadOnlyBuffer();
+            bqrBuf.order(ByteOrder.LITTLE_ENDIAN);
+            mInquiryCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mInquiryScanWindowCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mInquiryScanWindowDuration = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mPageScanWindowCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mPageScanWindowDuration = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mBleAdvertisementCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mBleScanWindowCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mBleScanWindowDuration = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mBleScanRequestCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mBleScanResponseCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+
+        }
+
+        private BqrVsDiscoveryMonitoring(Parcel in) {
+            mInquiryCount = in.readLong();
+            mInquiryScanWindowCount = in.readLong();
+            mInquiryScanWindowDuration = in.readLong();
+            mPageScanWindowCount = in.readLong();
+            mPageScanWindowDuration = in.readLong();
+            mBleAdvertisementCount = in.readLong();
+            mBleScanRequestCount = in.readLong();
+            mBleScanWindowDuration = in.readLong();
+            mBleScanRequestCount = in.readLong();
+            mBleScanResponseCount = in.readLong();
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getInquiryCount() {
+            return mInquiryCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getInquiryScanWindowCount() {
+            return mInquiryScanWindowCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getInquiryScanWindowDuration() {
+            return mInquiryScanWindowDuration;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getPageScanWindowCount() {
+            return mPageScanWindowCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getBleAdvertisementCount() {
+            return mBleAdvertisementCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getBleScanWindowCount() {
+            return mBleScanWindowCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getBleScanWindowDuration() {
+            return mBleScanWindowDuration;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getBleScanRequestCount() {
+            return mBleScanRequestCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getBleScanResponseCount() {
+            return mBleScanResponseCount;
+        }
+        @SuppressLint("UnflaggedApi")
+        public int describeContents(){
+            return 0;
+        }
+        /**
+         * Write BqrDiscMonitor to parcel.
+         *
+         * @hide
+         */
+        @SystemApi
+        @Override
+        @SuppressLint("UnflaggedApi")
+        public void writeToParcel(@NonNull Parcel dest, int flags) {
+            dest.writeLong(mInquiryCount);
+            dest.writeLong(mInquiryScanWindowCount);
+            dest.writeLong(mInquiryScanWindowDuration);
+            dest.writeLong(mPageScanWindowCount);
+            dest.writeLong(mPageScanWindowDuration);
+            dest.writeLong(mBleAdvertisementCount);
+            dest.writeLong(mBleScanWindowCount);
+            dest.writeLong(mBleScanWindowDuration);
+            dest.writeLong(mBleScanRequestCount);
+            dest.writeLong(mBleScanResponseCount);
+        }
+
+        /** @hide */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public static final @NonNull Parcelable.Creator<BqrVsDiscoveryMonitoring> CREATOR =
+                new Parcelable.Creator<BqrVsDiscoveryMonitoring>() {
+                    public BqrVsDiscoveryMonitoring createFromParcel(Parcel in) {
+                        return new BqrVsDiscoveryMonitoring(in);
+                    }
+
+                    public BqrVsDiscoveryMonitoring[] newArray(int size) {
+                        return new BqrVsDiscoveryMonitoring[size];
+                    }
+                };
+
+        @Override
+        public String toString() {
+            String str = "";
+            str =  "  BqrVsDiscoveryMonitoring: {\n"
+                 + ", mInquiryCount: " + mInquiryCount
+                 + ", mInquiryScanWindowCount: " + mInquiryScanWindowCount
+                 + ", mInquiryScanWindowDuration: " + mInquiryScanWindowDuration
+                 + ", mPageScanWindowCount: " + mPageScanWindowCount
+                 + ", mPageScanWindowDuration: " + mPageScanWindowDuration
+                 + ", mBleAdvertisementCount: " + mBleAdvertisementCount
+                 + ", mBleScanWindowCount: " + mBleScanWindowCount
+                 + ", mBleScanWindowDuration: " + mBleScanWindowDuration
+                 + ", mBleScanRequestCount: " + mBleScanRequestCount
+                 + ", mBleScanResponseCount: " + mBleScanResponseCount
+                 + "\n  }";
+            return str;
+        }
+
+    }
+    /**
+     * This class provides the System APIs to access the vendor specific part of Misc monitor event.
+     *
+     * @hide
+     */
+    @SystemApi
+    @SuppressLint("UnflaggedApi")
+    public static final class BqrVsMiscMonitoring implements Parcelable {
+        private static final String TAG = BluetoothQualityReport.TAG + ".BqrVsMiscMonitoring";
+        private long mRadioWakeupCount;
+        private long mHciWakeupCount;
+        private long mErrorWakeupCount;
+        private long mCoexRejectCount;
+
+        private BqrVsMiscMonitoring(byte[] rawData, int offset) {
+            if (rawData == null || rawData.length <= offset) {
+                throw new IllegalArgumentException(TAG + ": BQR raw data length is abnormal.");
+            }
+
+            ByteBuffer bqrBuf = ByteBuffer.wrap(rawData, offset, rawData.length - offset)
+                                           .asReadOnlyBuffer();
+            bqrBuf.order(ByteOrder.LITTLE_ENDIAN);
+            mRadioWakeupCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mHciWakeupCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mErrorWakeupCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+            mCoexRejectCount = bqrBuf.getInt() & 0xFFFFFFFFL;
+        }
+
+        private BqrVsMiscMonitoring(Parcel in) {
+            mRadioWakeupCount = in.readLong();
+            mHciWakeupCount = in.readLong();
+            mErrorWakeupCount = in.readLong();
+            mCoexRejectCount = in.readLong();
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getRadioWakeupCount() {
+            return mRadioWakeupCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getHciWakeupCount() {
+            return mHciWakeupCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getErrorWakeupCount() {
+            return mErrorWakeupCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public long getCoexRejectCount() {
+            return mCoexRejectCount;
+        }
+
+        @SuppressLint("UnflaggedApi")
+        public int describeContents() {
+            return 0;
+        }
+        /**
+         * Write BqrMiscMonitor to parcel.
+         *
+         * @hide
+         */
+        @SystemApi
+        @Override
+        @SuppressLint("UnflaggedApi")
+        public void writeToParcel(@NonNull Parcel dest, int flags) {
+            dest.writeLong(mRadioWakeupCount);
+            dest.writeLong(mHciWakeupCount);
+            dest.writeLong(mErrorWakeupCount);
+            dest.writeLong(mCoexRejectCount);
+        }
+        /** @hide */
+        @SystemApi
+        @SuppressLint("UnflaggedApi")
+        public static final @NonNull Parcelable.Creator<BqrVsMiscMonitoring> CREATOR =
+                new Parcelable.Creator<BqrVsMiscMonitoring>() {
+                    public BqrVsMiscMonitoring createFromParcel(Parcel in) {
+                        return new BqrVsMiscMonitoring(in);
+                    }
+
+                    public BqrVsMiscMonitoring[] newArray(int size) {
+                        return new BqrVsMiscMonitoring[size];
+                    }
+                };
+
+        @Override
+        public String toString() {
+            String str = "";
+            str =  "  BqrVsMiscMonitoring: {\n"
+                 + ", mRadioWakeupCount: " + mRadioWakeupCount
+                 + ", mHciWakeupCount: " + mHciWakeupCount
+                 + ", mErrorWakeupCount: " + mErrorWakeupCount
+                 + ", mCoexRejectCount: " + mCoexRejectCount
+                 + "\n  }";
+            return str;
+        }
+
     }
 
     /**

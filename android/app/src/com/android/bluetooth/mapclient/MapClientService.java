@@ -13,6 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+ /*
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
+*/
 
 package com.android.bluetooth.mapclient;
 
@@ -717,6 +723,28 @@ public class MapClientService extends ProfileService {
                     service.enforceCallingOrSelfPermission(Manifest.permission.READ_SMS,
                             "Need READ_SMS permission");
                     result = service.setMessageStatus(device, handle, status);
+                }
+                receiver.send(result);
+            } catch (RuntimeException e) {
+                receiver.propagateException(e);
+            }
+        }
+
+        @Override
+        public void sendImage(BluetoothDevice device, Uri[] contacts, String ImagePath,
+                PendingIntent sentIntent, PendingIntent deliveredIntent, AttributionSource source,
+                SynchronousResultReceiver receiver) {
+            if (VDBG) {
+                Log.v(TAG, "sendImage()");
+            }
+            try {
+                MapClientService service = getService(source);
+                boolean result = false;
+                if (service != null) {
+                    if (DBG) Log.d(TAG, "Checking Permission of sendImage");
+                    service.enforceCallingOrSelfPermission(Manifest.permission.SEND_SMS,
+                            "Need SEND_SMS permission");
+                    result = false;
                 }
                 receiver.send(result);
             } catch (RuntimeException e) {

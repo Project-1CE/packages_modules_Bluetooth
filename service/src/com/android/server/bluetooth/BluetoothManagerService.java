@@ -167,6 +167,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private static final int MESSAGE_RESTART_BLUETOOTH_SERVICE = 42;
     private static final int MESSAGE_BLUETOOTH_STATE_CHANGE = 60;
     private static final int MESSAGE_TIMEOUT_BIND = 100;
+    private static final int MESSAGE_TIMEOUT_UNBIND = 101;
     private static final int MESSAGE_GET_NAME_AND_ADDRESS = 200;
     private static final int MESSAGE_USER_SWITCHED = 300;
     private static final int MESSAGE_USER_UNLOCKED = 301;
@@ -1483,7 +1484,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 mBluetooth.updateQuietModeStatus(mQuietEnable,
                         mContext.getAttributionSource());
                 synchronousOnLeServiceUp(mContext.getAttributionSource());
-                persistBluetoothSetting(BLUETOOTH_ON_BLUETOOTH);	
+                persistBluetoothSetting(BLUETOOTH_ON_BLUETOOTH);
             }
         } catch (RemoteException | TimeoutException e) {
             Log.e(TAG, "Unable to call onServiceUp", e);
@@ -1779,8 +1780,15 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 try {
                     synchronousUnregisterCallback(mBluetoothCallback,
                             mContext.getAttributionSource());
-                } catch (RemoteException | TimeoutException e) {
-                    Log.e(TAG, "Unable to unregister BluetoothCallback", e);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "Remote excp:Unable to unregister BluetoothCallback", e);
+                }
+                 catch (TimeoutException e) {
+                    Log.e(TAG, "timeout excp:Unable to unregister BluetoothCallback", e);
+                    Message timeoutMsg = mHandler.obtainMessage(MESSAGE_TIMEOUT_UNBIND);
+                    mHandler.sendMessage(timeoutMsg);
+                    mUnbinding = false;
+                    return;
                 }
                 mBluetoothBinder = null;
                 mBluetooth = null;
@@ -3056,6 +3064,15 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                     } else {
                         Log.e(TAG, "Bind trails excedded");
                         mTryBindOnBindTimeout = false;
+                    }
+                    break;
+                }
+
+                 case MESSAGE_TIMEOUT_UNBIND: {
+                     Log.d(TAG, "MESSAGE_TIMEOUT_UNBIND : mBluetooth=" + mBluetooth + " mBinding="
+                    + mBinding + " mState=" + BluetoothAdapter.nameForState(mState));
+                    if (mState == BluetoothAdapter.STATE_OFF) {
+                        unbindAndFinish();
                     }
                     break;
                 }
