@@ -3221,6 +3221,11 @@ void bta_av_offload_rsp(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
 
 static void bta_av_offload_codec_builder(tBTA_AV_SCB* p_scb, tBT_A2DP_OFFLOAD* p_a2dp_offload) {
   A2dpCodecConfig* CodecConfig = bta_av_get_a2dp_current_codec();
+  if (!CodecConfig) {
+    log::error("current codec config is null");
+    p_a2dp_offload->codec_type = BTA_AV_CODEC_TYPE_UNKNOWN;
+    return;
+  }
   btav_a2dp_codec_index_t codec_index = A2DP_SourceCodecIndex(p_scb->cfg.codec_info);
   uint32_t codec_type = 0;
   uint16_t mtu = p_scb->stream_mtu;

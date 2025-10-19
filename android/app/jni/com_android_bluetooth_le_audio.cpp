@@ -139,10 +139,11 @@ static jobject prepareCodecConfigObj(JNIEnv* env, btle_audio_codec_config_t code
 
   jobject codecConfigObj = env->NewObject(
           android_bluetooth_BluetoothLeAudioCodecConfig.clazz,
-          android_bluetooth_BluetoothLeAudioCodecConfig.constructor, (jint)codecConfig.codec_type,
-          (jint)codecConfig.codec_priority, (jint)codecConfig.sample_rate,
-          (jint)codecConfig.bits_per_sample, (jint)codecConfig.channel_count,
-          (jint)codecConfig.frame_duration, (jint)codecConfig.octets_per_frame, 0, 0);
+          android_bluetooth_BluetoothLeAudioCodecConfig.constructor,
+          (jint)codecConfig.codec_type, (jint)codecConfig.codec_priority,
+          (jint)codecConfig.sample_rate, (jint)codecConfig.bits_per_sample,
+          (jint)codecConfig.channel_count, (jint)codecConfig.frame_duration,
+          (jint)codecConfig.octets_per_frame, 0, 0, 0L, 0L, 0L, 0L);
   return codecConfigObj;
 }
 
@@ -1605,7 +1606,8 @@ int register_com_android_bluetooth_le_audio(JNIEnv* env) {
   GET_JAVA_METHODS(env, "com/android/bluetooth/le_audio/LeAudioNativeInterface", javaMethods);
 
   const JNIJavaMethod javaLeAudioCodecMethods[] = {
-          {"<init>", "(IIIIIIIII)V", &android_bluetooth_BluetoothLeAudioCodecConfig.constructor},
+          {"<init>", "(IIIIIIIIIJJJJ)V",
+           &android_bluetooth_BluetoothLeAudioCodecConfig.constructor},
           {"getCodecType", "()I", &android_bluetooth_BluetoothLeAudioCodecConfig.getCodecType},
           {"getSampleRate", "()I", &android_bluetooth_BluetoothLeAudioCodecConfig.getSampleRate},
           {"getBitsPerSample", "()I",

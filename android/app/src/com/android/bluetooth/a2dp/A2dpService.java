@@ -77,7 +77,8 @@ public class A2dpService extends ProfileService {
     private static final String TAG = A2dpService.class.getSimpleName();
 
     // TODO(b/240635097): remove in U
-    private static final int SOURCE_CODEC_TYPE_OPUS = 6;
+    private static final int SOURCE_CODEC_TYPE_MAX = 7;
+    private static final int SOURCE_CODEC_TYPE_APTX_ADAPTIVE = SOURCE_CODEC_TYPE_MAX;
 
     private static A2dpService sA2dpService;
 
@@ -1269,7 +1270,7 @@ public class A2dpService extends ProfileService {
             boolean lowLatencyAudioAllow = false;
             BluetoothCodecConfig lowLatencyCodec =
                     new BluetoothCodecConfig.Builder()
-                            .setCodecType(SOURCE_CODEC_TYPE_OPUS) // remove in U
+                            .setCodecType(SOURCE_CODEC_TYPE_APTX_ADAPTIVE) // remove in U
                             .build();
 
             if (codecStatus != null

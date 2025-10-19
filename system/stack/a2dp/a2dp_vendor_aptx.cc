@@ -239,6 +239,10 @@ bool A2DP_VendorCodecEqualsAptx(const uint8_t* p_codec_info_a, const uint8_t* p_
 
 int A2DP_VendorGetBitRateAptx(const uint8_t* p_codec_info) {
   A2dpCodecConfig* CodecConfig = bta_av_get_a2dp_current_codec();
+  if (!CodecConfig) {
+    log::error("current codec config is null");
+    return -1;
+  }
   tA2DP_BITS_PER_SAMPLE bits_per_sample = CodecConfig->getAudioBitsPerSample();
   uint16_t samplerate = A2DP_GetTrackSampleRate(p_codec_info);
   return (samplerate * bits_per_sample * 2) / 4;
@@ -455,6 +459,8 @@ static bool select_audio_sample_rate(const btav_a2dp_codec_config_t* p_codec_aud
     case BTAV_A2DP_CODEC_SAMPLE_RATE_192000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_16000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_24000:
+    case BTAV_A2DP_CODEC_SAMPLE_RATE_32000:
+    case BTAV_A2DP_CODEC_SAMPLE_RATE_8000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_NONE:
       break;
   }
@@ -603,6 +609,8 @@ tA2DP_STATUS A2dpCodecConfigAptx::setCodecConfig(const uint8_t* p_peer_codec_inf
     case BTAV_A2DP_CODEC_SAMPLE_RATE_192000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_16000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_24000:
+    case BTAV_A2DP_CODEC_SAMPLE_RATE_32000:
+    case BTAV_A2DP_CODEC_SAMPLE_RATE_8000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_NONE:
       codec_config_.sample_rate = BTAV_A2DP_CODEC_SAMPLE_RATE_NONE;
       break;

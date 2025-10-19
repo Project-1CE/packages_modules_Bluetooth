@@ -72,6 +72,7 @@ java_sdk_library {
 
     impl_library_visibility: [
         "//external/sl4a/Common",
+        "//external/robolectric",
         "//packages/modules/Bluetooth/android/app:__subpackages__",
         "//packages/modules/Bluetooth/android/pandora/server",
         "//packages/modules/Bluetooth/framework/tests/bumble",
@@ -79,6 +80,7 @@ java_sdk_library {
         "//packages/services/Car/car-builtin-lib",
         // TODO(240720385)
         "//packages/services/Car/tests/CarBuiltinLibUnitTest",
+        "//vendor:__subpackages__",
         ":__subpackages__",
     ],
 
@@ -146,7 +148,10 @@ java_defaults {
         // if sdk_version="" this gets automatically included, but here we need to add manually.
         "framework-res",
     ],
-    defaults_visibility: ["//packages/modules/Bluetooth:__subpackages__"],
+    defaults_visibility: [
+        "//vendor:__subpackages__",
+        "//packages/modules/Bluetooth:__subpackages__",
+    ],
 }
 
 filegroup {

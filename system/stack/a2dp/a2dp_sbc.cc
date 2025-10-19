@@ -876,6 +876,8 @@ static bool select_audio_sample_rate(const btav_a2dp_codec_config_t* p_codec_aud
     case BTAV_A2DP_CODEC_SAMPLE_RATE_192000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_16000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_24000:
+    case BTAV_A2DP_CODEC_SAMPLE_RATE_32000:
+    case BTAV_A2DP_CODEC_SAMPLE_RATE_8000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_NONE:
       break;
   }
@@ -1058,6 +1060,8 @@ tA2DP_STATUS A2dpCodecConfigSbcBase::setCodecConfig(const uint8_t* p_peer_codec_
     case BTAV_A2DP_CODEC_SAMPLE_RATE_192000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_16000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_24000:
+    case BTAV_A2DP_CODEC_SAMPLE_RATE_32000:
+    case BTAV_A2DP_CODEC_SAMPLE_RATE_8000:
     case BTAV_A2DP_CODEC_SAMPLE_RATE_NONE:
       codec_config_.sample_rate = BTAV_A2DP_CODEC_SAMPLE_RATE_NONE;
       break;

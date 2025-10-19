@@ -1419,6 +1419,16 @@ static bool bta_av_co_should_select_hardware_codec(
     log::verbose("select hardware codec: {}", A2DP_CodecIndexStr(hardware_offload_index));
     return true;
   }
+  // Prioritize AAC offload
+  if (hardware_offload_index == BTAV_A2DP_CODEC_INDEX_SOURCE_AAC) {
+    log::verbose("select hardware codec: {}", A2DP_CodecIndexStr(hardware_offload_index));
+    return true;
+  }
+  // Prioritize SBC offload
+  if (hardware_offload_index == BTAV_A2DP_CODEC_INDEX_SOURCE_SBC) {
+    log::verbose("select hardware codec: {}", A2DP_CodecIndexStr(hardware_offload_index));
+    return true;
+  }
   // Prioritize LDAC, AptX HD and AptX over AAC and SBC offload codecs
   if (software_codec_index == BTAV_A2DP_CODEC_INDEX_SOURCE_LDAC ||
       software_codec_index == BTAV_A2DP_CODEC_INDEX_SOURCE_APTX_HD ||
@@ -1426,20 +1436,10 @@ static bool bta_av_co_should_select_hardware_codec(
     log::verbose("select software codec: {}", A2DP_CodecIndexStr(software_codec_index));
     return false;
   }
-  // Prioritize AAC offload
-  if (hardware_offload_index == BTAV_A2DP_CODEC_INDEX_SOURCE_AAC) {
-    log::verbose("select hardware codec: {}", A2DP_CodecIndexStr(hardware_offload_index));
-    return true;
-  }
   // Prioritize AAC software
   if (software_codec_index == BTAV_A2DP_CODEC_INDEX_SOURCE_AAC) {
     log::verbose("select software codec: {}", A2DP_CodecIndexStr(software_codec_index));
     return false;
-  }
-  // Prioritize SBC offload
-  if (hardware_offload_index == BTAV_A2DP_CODEC_INDEX_SOURCE_SBC) {
-    log::verbose("select hardware codec: {}", A2DP_CodecIndexStr(hardware_offload_index));
-    return true;
   }
   // Prioritize SBC software
   if (software_codec_index == BTAV_A2DP_CODEC_INDEX_SOURCE_SBC) {

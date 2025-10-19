@@ -20,6 +20,7 @@ import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -44,7 +45,15 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
     /** @hide */
     @IntDef(
             prefix = "SOURCE_CODEC_TYPE_",
-            value = {SOURCE_CODEC_TYPE_LC3, SOURCE_CODEC_TYPE_OPUS, SOURCE_CODEC_TYPE_INVALID})
+            value = {
+                SOURCE_CODEC_TYPE_LC3,
+                SOURCE_CODEC_TYPE_OPUS,
+                SOURCE_CODEC_TYPE_OPUS_HI_RES,
+                SOURCE_CODEC_TYPE_APTX_ADAPTIVE_LE,
+                SOURCE_CODEC_TYPE_INVALID,
+                SOURCE_CODEC_TYPE_APTX_ADAPTIVE_R4,
+                SOURCE_CODEC_TYPE_DEFAULT
+            })
     @Retention(RetentionPolicy.SOURCE)
     public @interface SourceCodecType {};
 
@@ -53,7 +62,23 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
     @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_OPUS_CODEC_TYPE)
     public static final int SOURCE_CODEC_TYPE_OPUS = 1;
 
+    /** @hide */
+    public static final int SOURCE_CODEC_TYPE_OPUS_HI_RES = 2;
+
+    @SuppressLint("UnflaggedApi")
+    public static final int SOURCE_CODEC_TYPE_APTX_ADAPTIVE_LE = 3;
+
     public static final int SOURCE_CODEC_TYPE_INVALID = 1000 * 1000;
+    /**
+     * AptX Adaptive R4 Codec.
+     * @hide
+     */
+    public static final int SOURCE_CODEC_TYPE_APTX_ADAPTIVE_R4 = 4;
+    /**
+     * Default Codec.
+     * @hide
+     */
+    public static final int SOURCE_CODEC_TYPE_DEFAULT = 5;
 
     /** @hide */
     @IntDef(
@@ -193,12 +218,17 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
      * Values are the bit mask as defined in the Bluetooth Assigned Numbers, Generic Audio,
      * Supported_Frame_Durations table
      *
-     * @hide
-     */
+     * Vendor Specific frame duration starting from bit 16
+     * @hide */
     @IntDef(
             flag = true,
             prefix = "FRAME_DURATION_",
-            value = {FRAME_DURATION_NONE, FRAME_DURATION_7500, FRAME_DURATION_10000})
+            value = {
+                FRAME_DURATION_NONE,
+                FRAME_DURATION_7500,
+                FRAME_DURATION_10000,
+                FRAME_DURATION_15000
+            })
     @Retention(RetentionPolicy.SOURCE)
     public @interface FrameDuration {}
 
@@ -211,6 +241,12 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
     /** Frame duration 10000 us. */
     public static final int FRAME_DURATION_10000 = 0x01 << 1;
 
+    /**
+     * Frame duration 15000 us.
+     * @hide
+     */
+    public static final int FRAME_DURATION_15000 = 0x01 << 16;
+
     private final @SourceCodecType int mCodecType;
     private final @CodecPriority int mCodecPriority;
     private final @SampleRate int mSampleRate;
@@ -220,6 +256,10 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
     private final int mOctetsPerFrame;
     private final int mMinOctetsPerFrame;
     private final int mMaxOctetsPerFrame;
+    private final long mCodecSpecific1;
+    private final long mCodecSpecific2;
+    private final long mCodecSpecific3;
+    private final long mCodecSpecific4;
 
     /**
      * Creates a new BluetoothLeAudioCodecConfig.
@@ -233,6 +273,10 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
      * @param octetsPerFrame the octets per frame of this codec
      * @param minOctetsPerFrame the minimum octets per frame of this codec
      * @param maxOctetsPerFrame the maximum octets per frame of this codec
+     * @param codecSpecific1 the specific value 1
+     * @param codecSpecific2 the specific value 2
+     * @param codecSpecific3 the specific value 3
+     * @param codecSpecific4 the specific value 4
      */
     private BluetoothLeAudioCodecConfig(
             @SourceCodecType int codecType,
@@ -243,7 +287,11 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
             @FrameDuration int frameDuration,
             int octetsPerFrame,
             int minOctetsPerFrame,
-            int maxOctetsPerFrame) {
+            int maxOctetsPerFrame,
+            long codecSpecific1,
+            long codecSpecific2,
+            long codecSpecific3,
+            long codecSpecific4) {
         mCodecType = codecType;
         mCodecPriority = codecPriority;
         mSampleRate = sampleRate;
@@ -253,6 +301,10 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
         mOctetsPerFrame = octetsPerFrame;
         mMinOctetsPerFrame = minOctetsPerFrame;
         mMaxOctetsPerFrame = maxOctetsPerFrame;
+        mCodecSpecific1 = codecSpecific1;
+        mCodecSpecific2 = codecSpecific2;
+        mCodecSpecific3 = codecSpecific3;
+        mCodecSpecific4 = codecSpecific4;
     }
 
     @Override
@@ -260,7 +312,6 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
         return 0;
     }
 
-    /** {@link Parcelable.Creator} interface implementation. */
     public static final @android.annotation.NonNull Parcelable.Creator<BluetoothLeAudioCodecConfig>
             CREATOR =
                     new Parcelable.Creator<BluetoothLeAudioCodecConfig>() {
@@ -274,6 +325,10 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
                             int octetsPerFrame = in.readInt();
                             int minOctetsPerFrame = in.readInt();
                             int maxOctetsPerFrame = in.readInt();
+                            long codecSpecific1 = in.readLong();
+                            long codecSpecific2 = in.readLong();
+                            long codecSpecific3 = in.readLong();
+                            long codecSpecific4 = in.readLong();
                             return new BluetoothLeAudioCodecConfig(
                                     codecType,
                                     codecPriority,
@@ -283,7 +338,11 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
                                     frameDuration,
                                     octetsPerFrame,
                                     minOctetsPerFrame,
-                                    maxOctetsPerFrame);
+                                    maxOctetsPerFrame,
+                                    codecSpecific1,
+                                    codecSpecific2,
+                                    codecSpecific3,
+                                    codecSpecific4);
                         }
 
                         public BluetoothLeAudioCodecConfig[] newArray(int size) {
@@ -302,6 +361,10 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
         out.writeInt(mOctetsPerFrame);
         out.writeInt(mMinOctetsPerFrame);
         out.writeInt(mMaxOctetsPerFrame);
+        out.writeLong(mCodecSpecific1);
+        out.writeLong(mCodecSpecific2);
+        out.writeLong(mCodecSpecific3);
+        out.writeLong(mCodecSpecific4);
     }
 
     private static String sampleRateToString(@SampleRate int sampleRateBit) {
@@ -374,6 +437,14 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
                 + mMinOctetsPerFrame
                 + ",mMaxOctetsPerFrame:"
                 + mMaxOctetsPerFrame
+                + ",mCodecSpecific1:"
+                + mCodecSpecific1
+                + ",mCodecSpecific2:"
+                + mCodecSpecific2
+                + ",mCodecSpecific3:"
+                + mCodecSpecific3
+                + ",mCodecSpecific4:"
+                + mCodecSpecific4
                 + "}";
     }
 
@@ -395,8 +466,16 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
         switch (mCodecType) {
             case SOURCE_CODEC_TYPE_LC3:
                 return "LC3";
+            case SOURCE_CODEC_TYPE_APTX_ADAPTIVE_LE:
+                return "APTX_ADAPTIVE_LEA";
             case SOURCE_CODEC_TYPE_INVALID:
                 return "INVALID CODEC";
+            case SOURCE_CODEC_TYPE_APTX_ADAPTIVE_R4:
+                return "APTX_ADAPTIVE_R4";
+            case SOURCE_CODEC_TYPE_DEFAULT:
+                return "DEFAULT";
+            case SOURCE_CODEC_TYPE_OPUS_HI_RES:
+                // Fall-through intended
             default:
                 if (Flags.leaudioAddOpusCodecType()) {
                     if (mCodecType == SOURCE_CODEC_TYPE_OPUS) {
@@ -453,6 +532,46 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
         return mMaxOctetsPerFrame;
     }
 
+    /**
+     * Returns the codec specific value1.
+     * As the value and usage differ for each codec, please refer to the concerned
+     * codec specification to obtain the codec specific information.
+     * @hide
+     */
+    public long getCodecSpecific1() {
+        return mCodecSpecific1;
+    }
+
+    /**
+     * Returns the codec specific value2.
+     * As the value and usage differ for each codec, please refer to the concerned
+     * codec specification to obtain the codec specific information.
+     * @hide
+     */
+    public long getCodecSpecific2() {
+        return mCodecSpecific2;
+    }
+
+    /**
+     * Returns the codec specific value3.
+     * As the value and usage differ for each codec, please refer to the concerned
+     * codec specification to obtain the codec specific information.
+     * @hide
+     */
+    public long getCodecSpecific3() {
+        return mCodecSpecific3;
+    }
+
+    /**
+     * Returns the codec specific value4.
+     * As the value and usage differ for each codec, please refer to the concerned
+     * codec specification to obtain the codec specific information.
+     * @hide
+     */
+    public long getCodecSpecific4() {
+        return mCodecSpecific4;
+    }
+
     @Override
     public boolean equals(@Nullable Object o) {
         if (o instanceof BluetoothLeAudioCodecConfig) {
@@ -465,7 +584,11 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
                     && other.getFrameDuration() == mFrameDuration
                     && other.getOctetsPerFrame() == mOctetsPerFrame
                     && other.getMinOctetsPerFrame() == mMinOctetsPerFrame
-                    && other.getMaxOctetsPerFrame() == mMaxOctetsPerFrame);
+                    && other.getMaxOctetsPerFrame() == mMaxOctetsPerFrame
+                    && other.mCodecSpecific1 == mCodecSpecific1
+                    && other.mCodecSpecific2 == mCodecSpecific2
+                    && other.mCodecSpecific3 == mCodecSpecific3
+                    && other.mCodecSpecific4 == mCodecSpecific4);
         }
         return false;
     }
@@ -485,7 +608,11 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
                 mFrameDuration,
                 mOctetsPerFrame,
                 mMinOctetsPerFrame,
-                mMaxOctetsPerFrame);
+                mMaxOctetsPerFrame,
+                mCodecSpecific1,
+                mCodecSpecific2,
+                mCodecSpecific3,
+                mCodecSpecific4);
     }
 
     /**
@@ -504,6 +631,10 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
         private int mOctetsPerFrame = 0;
         private int mMinOctetsPerFrame = 0;
         private int mMaxOctetsPerFrame = 0;
+        private long mCodecSpecific1 = 0;
+        private long mCodecSpecific2 = 0;
+        private long mCodecSpecific3 = 0;
+        private long mCodecSpecific4 = 0;
 
         public Builder() {}
 
@@ -517,6 +648,10 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
             mOctetsPerFrame = config.getOctetsPerFrame();
             mMinOctetsPerFrame = config.getMinOctetsPerFrame();
             mMaxOctetsPerFrame = config.getMaxOctetsPerFrame();
+            mCodecSpecific1 = config.getCodecSpecific1();
+            mCodecSpecific2 = config.getCodecSpecific2();
+            mCodecSpecific3 = config.getCodecSpecific3();
+            mCodecSpecific4 = config.getCodecSpecific4();
         }
 
         /**
@@ -619,6 +754,54 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
         }
 
         /**
+         * Set the codecSpecific1 for Bluetooth LE audio codec config.
+         *
+         * @param codecSpecific1 of this codec
+         * @return the same Builder instance
+         * @hide
+         */
+        public @NonNull Builder setCodecSpecific1(long codecSpecific1) {
+            mCodecSpecific1 = codecSpecific1;
+            return this;
+        }
+
+        /**
+         * Set the codecSpecific2 for Bluetooth LE audio codec config.
+         *
+         * @param codecSpecific2 of this codec
+         * @return the same Builder instance
+         * @hide
+         */
+        public @NonNull Builder setCodecSpecific2(long codecSpecific2) {
+            mCodecSpecific2 = codecSpecific2;
+            return this;
+        }
+
+        /**
+         * Set the codecSpecific3 for Bluetooth LE audio codec config.
+         *
+         * @param codecSpecific3 of this codec
+         * @return the same Builder instance
+         * @hide
+         */
+        public @NonNull Builder setCodecSpecific3(long codecSpecific3) {
+            mCodecSpecific3 = codecSpecific3;
+            return this;
+        }
+
+        /**
+         * Set the codecSpecific4 for Bluetooth LE audio codec config.
+         *
+         * @param codecSpecific4 of this codec
+         * @return the same Builder instance
+         * @hide
+         */
+        public @NonNull Builder setCodecSpecific4(long codecSpecific4) {
+            mCodecSpecific4 = codecSpecific4;
+            return this;
+        }
+
+        /**
          * Build {@link BluetoothLeAudioCodecConfig}.
          *
          * @return new BluetoothLeAudioCodecConfig built
@@ -633,7 +816,11 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
                     mFrameDuration,
                     mOctetsPerFrame,
                     mMinOctetsPerFrame,
-                    mMaxOctetsPerFrame);
+                    mMaxOctetsPerFrame,
+                    mCodecSpecific1,
+                    mCodecSpecific2,
+                    mCodecSpecific3,
+                    mCodecSpecific4);
         }
     }
 }

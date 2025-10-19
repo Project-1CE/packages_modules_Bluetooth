@@ -436,6 +436,8 @@ const char* A2DP_VendorCodecIndexStr(btav_a2dp_codec_index_t codec_index) {
     case BTAV_A2DP_CODEC_INDEX_SINK_SBC:
     case BTAV_A2DP_CODEC_INDEX_SOURCE_AAC:
     case BTAV_A2DP_CODEC_INDEX_SINK_AAC:
+    // scase BTAV_A2DP_CODEC_INDEX_SOURCE_MAX:
+    case BTAV_A2DP_CODEC_INDEX_SOURCE_APTX_TWS:
       break;  // These are not vendor-specific codecs
     case BTAV_A2DP_CODEC_INDEX_SOURCE_APTX:
       return A2DP_VendorCodecIndexStrAptx();
@@ -443,14 +445,14 @@ const char* A2DP_VendorCodecIndexStr(btav_a2dp_codec_index_t codec_index) {
       return A2DP_VendorCodecIndexStrAptxHd();
     case BTAV_A2DP_CODEC_INDEX_SOURCE_LDAC:
       return A2DP_VendorCodecIndexStrLdac();
-    case BTAV_A2DP_CODEC_INDEX_SOURCE_LC3:
-      return "LC3 not implemented";
     case BTAV_A2DP_CODEC_INDEX_SOURCE_OPUS:
       return A2DP_VendorCodecIndexStrOpus();
     case BTAV_A2DP_CODEC_INDEX_SINK_OPUS:
       return A2DP_VendorCodecIndexStrOpusSink();
     // Add a switch statement for each vendor-specific codec
     case BTAV_A2DP_CODEC_INDEX_MAX:
+    case BTAV_A2DP_CODEC_INDEX_SOURCE_APTX_ADAPTIVE:
+    case BTAV_A2DP_CODEC_INDEX_SOURCE_LC3:
       break;
     case BTAV_A2DP_CODEC_INDEX_SOURCE_EXT_MIN:
     case BTAV_A2DP_CODEC_INDEX_SINK_EXT_MIN:
@@ -467,6 +469,8 @@ bool A2DP_VendorInitCodecConfig(btav_a2dp_codec_index_t codec_index, AvdtpSepCon
     case BTAV_A2DP_CODEC_INDEX_SINK_SBC:
     case BTAV_A2DP_CODEC_INDEX_SOURCE_AAC:
     case BTAV_A2DP_CODEC_INDEX_SINK_AAC:
+    // case BTAV_A2DP_CODEC_INDEX_SOURCE_MAX:
+    case BTAV_A2DP_CODEC_INDEX_SOURCE_APTX_TWS:
       break;  // These are not vendor-specific codecs
     case BTAV_A2DP_CODEC_INDEX_SOURCE_APTX:
       return A2DP_VendorInitCodecConfigAptx(p_cfg);
@@ -474,14 +478,14 @@ bool A2DP_VendorInitCodecConfig(btav_a2dp_codec_index_t codec_index, AvdtpSepCon
       return A2DP_VendorInitCodecConfigAptxHd(p_cfg);
     case BTAV_A2DP_CODEC_INDEX_SOURCE_LDAC:
       return A2DP_VendorInitCodecConfigLdac(p_cfg);
-    case BTAV_A2DP_CODEC_INDEX_SOURCE_LC3:
-      break;  // not implemented
     case BTAV_A2DP_CODEC_INDEX_SOURCE_OPUS:
       return A2DP_VendorInitCodecConfigOpus(p_cfg);
     case BTAV_A2DP_CODEC_INDEX_SINK_OPUS:
       return A2DP_VendorInitCodecConfigOpusSink(p_cfg);
     // Add a switch statement for each vendor-specific codec
     case BTAV_A2DP_CODEC_INDEX_MAX:
+    case BTAV_A2DP_CODEC_INDEX_SOURCE_APTX_ADAPTIVE:
+    case BTAV_A2DP_CODEC_INDEX_SOURCE_LC3:
       break;
     case BTAV_A2DP_CODEC_INDEX_SOURCE_EXT_MIN:
     case BTAV_A2DP_CODEC_INDEX_SINK_EXT_MIN:
